@@ -1,0 +1,73 @@
+# .github/workflows/deploy.yml
+# On every push to main: build the image, push it to ECR, and roll ECS onto it.
+
+name: Deploy to ECS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:        # adds a "Run workflow" button for manual runs
+
+permissions:
+  id-token: write           # lets the job request an OIDC token from GitHub
+  contents: read            # lets the job read the repo
+
+env:
+  AWS_REGION: us-east-2
+  ROLE_ARN: arn:aws:iam::731770490137:role/github-deploy-census
+  ECR_REPOSITORY: census-streamlit
+  ECS_CLUSTER: census-cluster
+  ECS_SERVICE: census-service
+  TASK_FAMILY: census-streamlit
+  CONTAINER_NAME: census-streamlit
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v5
+
+      - name: Get temporary AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push the image (tagged with the commit ID)
+        id: build
+        env:
+          IMAGE: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+        run: |
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      # Pull the current task definition from AWS instead of storing it in the repo.
+      # It contains the API key, so it must never be committed or printed:
+      # logs for a public repo are public.
+      - name: Download the current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "$TASK_FAMILY" \
+            --query taskDefinition > task-definition.json
+
+      - name: Swap in the new image
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build.outputs.image }}
+
+      - name: Deploy to ECS and wait until it is running
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          service: ${{ env.ECS_SERVICE }}
+          wait-for-service-stability: true
