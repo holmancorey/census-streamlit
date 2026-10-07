@@ -9,12 +9,10 @@ on:
   workflow_dispatch:        # adds a "Run workflow" button for manual runs
 
 permissions:
-  id-token: write           # lets the job request an OIDC token from GitHub
   contents: read            # lets the job read the repo
 
 env:
   AWS_REGION: us-east-2
-  ROLE_ARN: arn:aws:iam::731770490137:role/github-deploy-census
   ECR_REPOSITORY: census-streamlit
   ECS_CLUSTER: census-cluster
   ECS_SERVICE: census-service
@@ -28,10 +26,13 @@ jobs:
       - name: Check out the code
         uses: actions/checkout@v5
 
-      - name: Get temporary AWS credentials (OIDC)
+      # Uses access keys stored as GitHub repository secrets.
+      # (OIDC is the better pattern, but this practice account blocks it.)
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Log in to ECR
