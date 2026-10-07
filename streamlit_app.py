@@ -52,7 +52,7 @@ def fetch_census(label: str) -> list[dict]:
 
 
 st.set_page_config(page_title="Census Explorer", layout="wide")
-st.title("Census Explorer")
+st.title("Census Explorer v2")
 st.caption("Source: ACS 5-year estimates, 2023")
 
 if not API_KEY:
